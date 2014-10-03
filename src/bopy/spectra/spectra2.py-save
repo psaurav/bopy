@@ -1,0 +1,182 @@
+#!/usr/bin/python
+
+import os
+import sys
+import numpy as np
+import scipy
+from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
+
+class Spectra2:
+    """
+    A class to handle spectral data and obtain extinction and absorption coefficients
+    """
+
+    bloodfile   = 'spectras/Blood/hemoglobin.dat'
+    waterfile   = 'spectras/Water/newwater.dat'
+    #lipidfile   = 'spectras/Lipid/lipid.dat'
+    lipidfile   = 'spectras/Lipid/fat.txt'
+    cmpM2mmpuM  = 10000000.        # cm^-1/M -> mm^-1/uM
+
+    def __init__(self, ini=650, fin=1000, din=351):
+        self.ini = ini
+        self.fin = fin
+        self.din = din
+        self.wlnew = np.linspace(ini, fin, 350)
+        self.spectras = os.path.join(os.path.split(__file__)[0], 'spectras')
+
+    def readBlood(self):
+        """
+        Read blood files
+        """
+        #d = np.loadtxt(self.bloodfile)
+        d = np.loadtxt(os.path.join(self.spectras, 'hemoglabin.dat')
+        lTHB = d[:,0]
+        eHBO2 = d[:,1]*scipy.log(10.0)/self.cmpM2mmpuM
+        eHB = d[:,2]*scipy.log(10.0)/self.cmpM2mmpuM
+        eHBO2_f3    = interp1d(lTHB, eHBO2,  kind='cubic')
+        eHB_f3      = interp1d(lTHB, eHB,    kind='cubic')
+        return eHBO2_f3, eHB_f3
+
+        
+    def readWater(self):
+        """
+        # Water
+        """
+        #d = np.loadtxt(self.waterfile)
+        d = np.loadtxt(os.path.join(self.spectras, 'newwater.dat')
+        lH2O = d[:,0]
+        muaH2O = d[:,1]/10.0        # mm^1
+        muaH2O_f3   = interp1d(lH2O, muaH2O, kind='cubic')
+        return muaH2O_f3
+
+
+    def readLipid(self):
+        """
+        # Lipid
+        """
+        #d = np.loadtxt(self.lipidfile)
+        d = np.loadtxt(os.path.join(self.spectras, 'fat.txt')
+        lLipid = d[:,0]
+        #muaLipid = d[:,1]/10.0      # mm^1
+        muaLipid = d[:,1]/1000.0      # mm^1 (2004 data)
+        muaLipid_f3 = interp1d(lLipid, muaLipid, kind='cubic')
+        return muaLipid_f3
+
+    def readMine(self, filepath, comments, log10, mmFactor):
+        """
+        """
+        d = np.loadtxt(filepath, comments=comments)
+        l = d[:,0]
+
+        f = 1.0
+        if log10:
+            f = scipy.log(10.0) 
+        f = f/mmFactor
+        mua = d[:,1]*f
+        mua_f3   = interp1d(l, mua, kind='cubic')
+        return mua_f3
+
+    def extcoeffHBO2(self, wl=np.array([])):
+        eHBO2_f3, eHB_f3 = self.readBlood()
+        return eHBO2_f3(wl)
+
+    def extcoeffHB(self, wl=np.array([])):
+        eHBO2_f3, eHB_f3 = self.readBlood()
+        return eHB_f3(wl)
+
+    def muaH2O(self, wl=np.array([]), pt=1.0):
+        muaH2O_f3 = self.readWater()
+        return muaH2O_f3(wl)*pt 
+
+    def muaLipid(self, wl=np.array([]), pt=1.0):
+        muaLipid_f3 = self.readLipid()
+        return muaLipid_f3(wl)*pt 
+
+    def muaHBO2(self, wl=np.array([]), c=24.0):
+        return self.extcoeffHBO2(wl)*c
+
+    def muaHB(self, wl=np.array([]), c=6.0):
+        return self.extcoeffHB(wl)*c
+
+    def muaStock(self, filepath, mmFactor, wl, stock_dilute=1.0, log10=True, comments=''):
+        mua_f3 = self.readMine(filepath=filepath, comments=comments, log10=log10, mmFactor=mmFactor) 
+        return mua_f3(wl)/stock_dilution
+
+    def muaStockAndWater(self, filename, mmFactor, wl, stock_dilute, log10, comments, stock_vol, water_vol):
+        """
+        Calculate the mua of water and stock
+
+        Arguments:
+            filename (str): the full pathname to absorbance data file
+            mmFactor (float): factor to convert to mm units (e.g mua [1/mm] = mua [1/cm] /mmFactor, mmFactor= 10)
+            wl (numpy.array): list of wavelengths in [nm]
+            stock_dilute (float < 1.0): percentage (e.g 0.05 is 5%) dilution used for absorbance measurements
+            log10 (bool): is True if absorbance is recorded in log_10, False if recorded in ln
+            comments (str): a character string used to denote comment in the absorbance data
+            stock_vol (float): the volume of stock used in mixture
+            water_vol (float): the volume of water used in mixture
+
+        Returns:
+            (numpy.array): the effective mua of water and stock mixture  
+        """
+        mua_stock = self.muaStock(filename, mmFactor, wl, stock_dilute=stock_dilute, log10=log10, comments=comments)
+        mua_water = self.muaH2O(wl)
+        return (mua_water*water_vol + mua_stock*stock_vol )/(water_vol + stock_vol)
+
+    def cHBO2andHB(self, wl, mua, pH2O, pLipid):
+        """
+        Calculate the HBO2 and HB concentrations
+            mua(l) = eHBO2(l)*cHBO2 + eHB(l)*cHB + muaH2O(l)*pH2O + muaLipid(l)*pLipid
+
+        Arguments:
+            wl (numpy.array): wavelengths [nm]
+            mua (numpy.array): mua [mm^-1]
+            pH2O (float < 1.0): percentage water
+            pLipid (float < 1.0): percentage lipid
+
+        Returns:
+            (whatever scipy.linalg.lstsq() returns)
+            
+        """
+        eHBO2 = self.extcoeffHBO2(wl)
+        eHB = self.extcoeffHB(wl)
+        A = np.matrix([eHBO2, eHB]).T
+        background = self.muaH2O(wl)*pH2O + self.muaLipid(wl)*pLipid
+        b = mua - background
+        return scipy.linalg.lstsq(A, b) 
+
+        
+    def plot_All(self, cHBO2=24.0, cHB=6.0, pH2O=0.31, pLipid=0.57):
+        mHBO2 = self.muaHBO2(wl=self.wlnew, c=cHBO2)
+        mHB = self.muaHB(wl=self.wlnew, c=cHB)
+        mH2O = self.muaH2O(wl=self.wlnew, pt=pH2O)
+        mLipid = self.muaLipid(wl=self.wlnew, pt=pLipid)
+        mT = mHBO2 + mHB + mH2O + mLipid
+        plt.plot(self.wlnew, mHBO2, self.wlnew, mHB, self.wlnew, mH2O, self.wlnew, mLipid, self.wlnew, mT)
+        plt.legend((r'HBO$_2$', 'HB', r'H$_2$O', 'Lipid', 'Total'), 'upper left')
+        plt.xlim(self.ini, self.fin)
+        plt.ylim(0, 0.022)
+        plt.xlabel(r'$\lambda$ [nm]')
+        plt.ylabel(r'$\mu_a$ [mm$^{-1}$]')
+        title = r"Absorption coefficients in typical breasts\
+(c$_{HBO_2}$=%.1f, c$_{HB}$=%.1f, pct$_{H_2O}$=%.2f, pct$_{Lipid}$=%.2f)"%(cHBO2, cHB, pH2O, pLipid)
+        plt.title(title)
+        plt.show()
+
+class Chromophore:
+    """
+        A class to perform chromophore calculations
+    """    
+    def __init__(self, stock_dilution):
+        self.stock_dilution = stock_dilution
+        
+
+
+def main():
+    spect = Spectra2()
+    spect.plot_All()
+
+if __name__ == '__main__':
+    main()
+

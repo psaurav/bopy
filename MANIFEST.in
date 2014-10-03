@@ -1,0 +1,3 @@
+include README.txt
+include src/bopy/cgen3fit/gen3fit/cgen3fit.h
+include src/bopy/cgen3fit/gen3fit/fftfit.h

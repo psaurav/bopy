@@ -1,0 +1,66 @@
+import numpy as np
+import bopy as bp
+
+def homogmuamusp(p, wl_nm):
+    #
+    # Read the water file
+    #
+    mua_water_cm = bp.spectra.Spectra2().muaH2O(wl_nm)*10.0
+    print "mua_water_cm =", mua_water_cm
+
+    #
+    # Read the spectrophotometer file
+    #
+    spect_filename = p.get_val("INK_SPECTROPHOTOMETER_FILE")
+    spect_dilution = float(p.get_val("INK_SPECT_DILUTION_PERCENTAGE"))/100.0
+    mua_stock_cm = bp.spectra.Spectra2().muaStock(spect_filename, 1.0, wl_nm, spect_dilution)
+    print "mua_stock_cm =", mua_stock_cm
+
+    #sys.exit(0)
+    #
+    # Homog bath definition
+    #
+    vol_water_mL = float(p.get_val("HOMOG_WATER_VOLUME_ORIGINAL_ML"))
+    vol_water_removed_mL = float(p.get_val("HOMOG_WATER_VOLUME_REMOVED_ML"))
+    vol_water_mL = vol_water_mL - vol_water_removed_mL
+    vol_intralipid_added_mL = float(p.get_val("HOMOG_INTRALIP_VOLUME_ADDED_ML"))
+    vol_water_and_intralipid_mL = vol_water_mL + vol_intralipid_added_mL
+    print "final water+intralip volume (mL):", vol_water_and_intralipid_mL
+    vol_stock_mL = float(p.get_val("HOMOG_INK_VOLUME_ADDED_ML"))
+    print "ink stock volume (mL):", vol_stock_mL
+
+    # 
+    # Absoption calculation
+    #
+    mua_bath_cm = (mua_water_cm*vol_water_and_intralipid_mL + mua_stock_cm*vol_stock_mL )/(vol_water_and_intralipid_mL + vol_stock_mL)
+    mua_bath_mm = mua_bath_cm/10.
+
+    print "mua_bath_mm = ", mua_bath_mm
+
+    #
+    # Scattering
+    #
+    print
+    print "==Scattering=="
+    intralipid_pct_vanstaveren = 10.0
+    vanstaveren_unit_conversion = 1000.0*10.0 # from mL^-1 L mm^-1 to cm^-1
+    intralipid_pct = 20.0
+    #total_volume = intralipid_volume + water_volume
+    intralipid_factor = intralipid_pct/intralipid_pct_vanstaveren
+    wl_um = wl_nm*1e-3
+    g = 1.1-0.58*wl_um
+    print >>sys.stderr, "g:", g
+    musp_intralipid_10pct = (1.0-g)*0.016*np.power(wl_um, -2.4) * vanstaveren_unit_conversion
+    musp_intralipid = musp_intralipid_10pct*intralipid_factor*vol_intralipid_added_mL/vol_water_and_intralipid_mL
+    musp_intralipid_mm = musp_intralipid/10.0
+    print "musp intralipid:", musp_intralipid_mm
+    fit_func = lambda p, x: p[0]*(x**(-p[1]))
+    err_func = lambda p, x, y: (y - fit_func(p,x))
+    p = np.array([1000.0, 1.0])
+    p1, success = scipy.optimize.leastsq(err_func, p[:], args=(wl_nm, musp_intralipid_mm))
+    print "fitting success:", success
+    print "p1:", p1
+    print "musp_check:", fit_func(p1,wl_nm)
+
+    print "SCATTERING_PREFACTOR_A = HOMOG %g" % (p1[0])
+    print "SCATTERING_POWER_B = HOMOG %g" %(p1[1])

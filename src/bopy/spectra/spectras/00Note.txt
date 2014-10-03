@@ -1,0 +1,14 @@
+General website: http://omlc.ogi.edu/spectra/
+
+EC/HBO2.dat
+EC/HB.dat
+(from http://omlc.ogi.edu/spectra/hemoglobin/summary.html)
+
+MUA/H2O.dat
+(from http://omlc.ogi.edu/spectra/water/data/segelstein81.dat)
+the values are mua (cm^-1)
+
+MUA/LIPID.dat
+(from Regina, don't know how this was processed from http://omlc.ogi.edu/spectra/fat/fat.txt)
+the values are mua (cm^-1)
+
